@@ -442,7 +442,9 @@ static void handle_key_event(struct sway_keyboard *keyboard,
 	if (keyboard->held_binding && binding_released != keyboard->held_binding &&
 			event->state == WL_KEYBOARD_KEY_STATE_RELEASED) {
 		seat_execute_command(seat, keyboard->held_binding);
-		handled = true;
+		if ((keyboard->held_binding->flags & BINDING_PASSTHROUGH) == 0) {
+			handled = true;
+		}
 	}
 	if (binding_released != keyboard->held_binding) {
 		keyboard->held_binding = NULL;
@@ -486,7 +488,9 @@ static void handle_key_event(struct sway_keyboard *keyboard,
 
 	if (binding) {
 		seat_execute_command(seat, binding);
-		handled = true;
+		if ((binding->flags & BINDING_PASSTHROUGH) == 0) {
+			handled = true;
+		}
 	}
 
 	if (!handled && keyboard->wlr->group) {
