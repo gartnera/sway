@@ -285,49 +285,6 @@ static void handle_tablet_tool_tip(struct sway_seat *seat,
 	wlr_tablet_tool_v2_start_implicit_grab(tool->tablet_v2_tool);
 }
 
-/*----------------------------------\
- * Functions used by handle_button  /
- *--------------------------------*/
-
-static bool trigger_pointer_button_binding(struct sway_seat *seat,
-		struct wlr_input_device *device, uint32_t button,
-		enum wl_pointer_button_state state, uint32_t modifiers,
-		bool on_titlebar, bool on_border, bool on_contents, bool on_workspace) {
-	// We can reach this for non-pointer devices if we're currently emulating
-	// pointer input for one. Emulated input should not trigger bindings. The
-	// device can be NULL if this is synthetic (e.g. swaymsg-generated) input.
-	if (device && device->type != WLR_INPUT_DEVICE_POINTER) {
-		return false;
-	}
-
-	struct seatop_default_event *e = seat->seatop_data;
-
-	char *device_identifier = device ? input_device_get_identifier(device)
-		: strdup("*");
-	struct sway_binding *binding = NULL;
-	if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
-		state_add_button(e, button);
-		binding = get_active_mouse_binding(e,
-			config->current_mode->mouse_bindings, modifiers, false,
-			on_titlebar, on_border, on_contents, on_workspace,
-			device_identifier);
-	} else {
-		binding = get_active_mouse_binding(e,
-			config->current_mode->mouse_bindings, modifiers, true,
-			on_titlebar, on_border, on_contents, on_workspace,
-			device_identifier);
-		state_erase_button(e, button);
-	}
-
-	free(device_identifier);
-	if (binding) {
-		seat_execute_command(seat, binding);
-		return true;
-	}
-
-	return false;
-}
-
 static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 		struct wlr_input_device *device, uint32_t button,
 		enum wl_pointer_button_state state) {
@@ -356,9 +313,36 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 	uint32_t modifiers = keyboard ? wlr_keyboard_get_modifiers(keyboard) : 0;
 
 	// Handle mouse bindings
-	if (trigger_pointer_button_binding(seat, device, button, state, modifiers,
-			on_titlebar, on_border, on_contents, on_workspace)) {
-		return;
+	// We can reach this for non-pointer devices if we're currently emulating
+	// pointer input for one. Emulated input should not trigger bindings. The
+	// device can be NULL if this is synthetic (e.g. swaymsg-generated) input.
+		struct sway_binding *binding = NULL;
+	if (device && device->type == WLR_INPUT_DEVICE_POINTER) {
+		struct seatop_default_event *e = seat->seatop_data;
+
+		char *device_identifier = device ? input_device_get_identifier(device)
+			: strdup("*");
+		if (state == WL_POINTER_BUTTON_STATE_PRESSED) {
+			state_add_button(e, button);
+			binding = get_active_mouse_binding(e,
+				config->current_mode->mouse_bindings, modifiers, false,
+				on_titlebar, on_border, on_contents, on_workspace,
+				device_identifier);
+		} else {
+			binding = get_active_mouse_binding(e,
+				config->current_mode->mouse_bindings, modifiers, true,
+				on_titlebar, on_border, on_contents, on_workspace,
+				device_identifier);
+			state_erase_button(e, button);
+		}
+
+		free(device_identifier);
+		if (binding) {
+			seat_execute_command(seat, binding);
+			if ((binding->flags & BINDING_PASSTHROUGH) == 0) {
+				return;
+			}
+		}
 	}
 
 	// Handle clicking an empty workspace
@@ -506,7 +490,9 @@ static void handle_button(struct sway_seat *seat, uint32_t time_msec,
 
 	// Handle mousedown on a container surface
 	if (surface && cont && state == WL_POINTER_BUTTON_STATE_PRESSED) {
-		seatop_begin_down(seat, cont, sx, sy);
+		if (!binding) {
+			seatop_begin_down(seat, cont, sx, sy);
+		}
 		seat_pointer_notify_button(seat, time_msec, button, WL_POINTER_BUTTON_STATE_PRESSED);
 		return;
 	}
